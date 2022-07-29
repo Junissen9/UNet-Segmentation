@@ -1,148 +1,93 @@
 # UNet-Segmentation
-Image segmentation with neural networks
-# Загрузка тренировочных данных
-from google.colab import drive
-drive.mount('/content/gdrive', force_remount=True)
 
-!cp /content/gdrive/'My Drive'/data.zip .
-!unzip data.zip
+## Задача сегментации
+Сегментация – задача разбиения изображений на области, соответствующие различным объектам.
 
-# Импортирование библиотек
-import numpy as np
-import matplotlib.pyplot as plt
-import cv2
-import pandas as pd
+<img src="https://user-images.githubusercontent.com/34841826/181710381-e095745f-64d2-4ba9-94b6-7f8523fdff79.png" width="600" height="300">
 
-# Функция декодирования масок из последовательности 0 и 1
-def rle_decode(mask_rle, shape=(1280, 1918, 1)):
-    '''
-    mask_rle: run-length as string formated (start length)
-    shape: (height,width) of array to return 
-    Returns numpy array, 1 - mask, 0 - background
-    '''
-    img = np.zeros(shape[0]*shape[1], dtype=np.uint8)
+Можно привести аналогию с задачей классификации, в задаче сегментации также производится классификация, только не объектов, а отдельных пикселей. 
 
-    s = mask_rle.split()
-    starts, lengths = [np.asarray(x, dtype=int) for x in (s[0:][::2], s[1:][::2])]
-    starts -= 1
-    ends = starts + lengths    
-    for lo, hi in zip(starts, ends):
-        img[lo:hi] = 1
-        
-    img = img.reshape(shape)
-    return img
+## Структура сети UNet
 
-# Считывание данных
-df = pd.read_csv('data/train_masks.csv')
+В данной работе за основу была взята архитектура UNet.
+Данная сеть является свёрточной нейронной сетью, которая была создана в 2015 году для сегментации биомедицинских изображений в отделении Computer Science Фрайбургского университета. 
+<img src="https://user-images.githubusercontent.com/34841826/181710861-5375154c-f3ed-46b0-9047-6bfd643bdc77.png" width="1000" height="500">
+Сеть содержит сжимающий путь (слева) и расширяющий путь (справа), поэтому архитектура похожа на букву U, что и отражено в названии. На каждом шаге мы удваиваем количество каналов признаков. 
 
-train_df = df[:4000]
-val_df = df[4000:]
+## Обучение
 
-img_name, mask_rle = train_df.iloc[4]
+Сеть обучается методом стохастического градиентного спуска на основе входных изображений и соответствующих им карт сегментации. Из-за сверток выходное изображение меньше входного сигнала на постоянную ширину границы. 
+Кросс-энтропия, вычисляемая в каждой точке, определяется как
 
-img = cv2.imread('data/train/{}'.format(img_name))
-mask = rle_decode(mask_rle)
+<img src="https://user-images.githubusercontent.com/34841826/181711474-de2dad1b-6083-4fe4-a72f-486c6bafbb9f.png" width="250" height="90">
+Граница разделения вычисляется с использованием морфологических операций.
 
+## Загрузка и подготовка данных
 
-# Генерация batch-пакетов нейронной сети
-def keras_generator(gen_df, batch_size):
-    while True:
-        x_batch = []
-        y_batch = []
-        
-        for i in range(batch_size):
-            img_name, mask_rle = gen_df.sample(1).values[0] # считывание случайной картинки и маски
-            img = cv2.imread('data/train/{}'.format(img_name))
-            mask = rle_decode(mask_rle)
-            
-            img = cv2.resize(img, (256, 256)) 
-            mask = cv2.resize(mask, (256, 256))
-            
-            x_batch += [img] # добавляем в batch
-            y_batch += [mask]
+Для обучения модели использовался dataset с различными изображениями и файл с бинарными масками.
 
-        x_batch = np.array(x_batch) / 255. # нормирование размера
-        y_batch = np.array(y_batch)
+<img src="https://user-images.githubusercontent.com/34841826/181715148-727750f2-be83-4a7e-ae2d-4f528fee44f5.png" width="600" height="400">
+ 
+И маски для данных картинок
 
-        yield x_batch, np.expand_dims(y_batch, -1)
+<img src="https://user-images.githubusercontent.com/34841826/181718109-bc4b8421-797c-49a8-85ce-9f3ba19e6a8c.png" width="600" height="150">
 
-# Запуск генератора для 16-ти картинок
-for x, y in keras_generator(train_df, 16): 
-    break
+Код для импорта данных: 
 
-# Импортирование библиотек - в работе используется фреймворк Keras
-import keras
-from keras.layers import Dense, GlobalAveragePooling2D, Dropout, UpSampling2D, Conv2D, MaxPooling2D, Activation
-from keras.models import Model
-from keras.layers import Input, Dense, Concatenate
+    from google.colab import drive
+    drive.mount('/content/gdrive', force_remount=True)
+    !cp /content/gdrive/'My Drive'/data.zip .
+    !unzip data.zip
 
-inp = Input(shape=(256, 256, 3)) 
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import cv2
+    import pandas as pd
 
-conv_1_1 = Conv2D(32, (3, 3), padding='same')(inp) # слой свертки
-conv_1_1 = Activation('relu')(conv_1_1) # активация свертки
-conv_1_2 = Conv2D(32, (3, 3), padding='same')(conv_1_1)
-conv_1_2 = Activation('relu')(conv_1_2)
-pool_1 = MaxPooling2D(2)(conv_1_2) # пулинг
+Более подробно в Application 1 - Import data.
 
+## Создание архитектуры
 
-conv_2_1 = Conv2D(64, (3, 3), padding='same')(pool_1)
-conv_2_1 = Activation('relu')(conv_2_1)
-conv_2_2 = Conv2D(64, (3, 3), padding='same')(conv_2_1)
-conv_2_2 = Activation('relu')(conv_2_2)
-pool_2 = MaxPooling2D(2)(conv_2_2)
+Сначала выполнялась свертка функцией Conv2D с параметром padding, который сохранял пограничные пиксели. После этого выполнялась активация (Activation с параметром Relu).  
 
+    inp = Input(shape=(256, 256, 3)) 
 
-conv_3_1 = Conv2D(128, (3, 3), padding='same')(pool_2)
-conv_3_1 = Activation('relu')(conv_3_1)
-conv_3_2 = Conv2D(128, (3, 3), padding='same')(conv_3_1)
-conv_3_2 = Activation('relu')(conv_3_2)
-pool_3 = MaxPooling2D(2)(conv_3_2)
+    conv_1_1 = Conv2D(32, (3, 3), padding='same')(inp) # слой свертки
+    conv_1_1 = Activation('relu')(conv_1_1) # активация свертки
 
+    conv_1_2 = Conv2D(32, (3, 3), padding='same')(conv_1_1)
+    conv_1_2 = Activation('relu')(conv_1_2)
 
-conv_4_1 = Conv2D(256, (3, 3), padding='same')(pool_3)
-conv_4_1 = Activation('relu')(conv_4_1)
-conv_4_2 = Conv2D(256, (3, 3), padding='same')(conv_4_1)
-conv_4_2 = Activation('relu')(conv_4_2)
-pool_4 = MaxPooling2D(2)(conv_4_2)
+    pool_1 = MaxPooling2D(2)(conv_1_2) # пулинг
+    
+Во второй половине обучения происходит увеличение изображения и параллельная конкатенация блоков одинаковой размерности.
+Здесь применяются функции UpSampling2D с билинейной интерполяцией для увеличения изображения. Также реализуется блок из 2х сверток с их последующей активацией.	
 
-# обратный блок
-up_1 = UpSampling2D(2, interpolation='bilinear')(pool_4) # апсамплинг 
-conc_1 = Concatenate()([conv_4_2, up_1]) # конкатенация с тензором пулинга той же размерности
+    up_1 = UpSampling2D(2, interpolation='bilinear')(pool_4) # апсамплинг 
+    conc_1 = Concatenate()([conv_4_2, up_1]) # конкатенация с тензором пулинга той же размерности
 
-conv_up_1_1 = Conv2D(256, (3, 3), padding='same')(conc_1) # свертка уже сконкатенированного блока
-conv_up_1_1 = Activation('relu')(conv_up_1_1)
-conv_up_1_2 = Conv2D(256, (3, 3), padding='same')(conv_up_1_1)
-conv_up_1_2 = Activation('relu')(conv_up_1_2)
+    conv_up_1_1 = Conv2D(256, (3, 3), padding='same')(conc_1) # свертка уже сконкатенированного блока
+    conv_up_1_1 = Activation('relu')(conv_up_1_1)
 
+    conv_up_1_2 = Conv2D(256, (3, 3), padding='same')(conv_up_1_1)
+    conv_up_1_2 = Activation('relu')(conv_up_1_2)
+    
+На последнем этапе происходит свертка изображения с 1м каналом, для определения конечной маски и активация с параметром Sigmoid для получения вероятностей пикселей маски.
 
-up_2 = UpSampling2D(2, interpolation='bilinear')(conv_up_1_2)
-conc_2 = Concatenate()([conv_3_2, up_2])
-conv_up_2_1 = Conv2D(128, (3, 3), padding='same')(conc_2)
-conv_up_2_1 = Activation('relu')(conv_up_2_1)
-conv_up_2_2 = Conv2D(128, (3, 3), padding='same')(conv_up_2_1)
-conv_up_2_2 = Activation('relu')(conv_up_2_2)
+    conv_up_4_2 = Conv2D(1, (3, 3), padding='same')(conv_up_4_1) # свертка с 1м каналом, для вывода маски изображения
+    result = Activation('sigmoid')(conv_up_4_2)
 
+Более подробно в Application 2.
 
-up_3 = UpSampling2D(2, interpolation='bilinear')(conv_up_2_2)
-conc_3 = Concatenate()([conv_2_2, up_3])
-conv_up_3_1 = Conv2D(64, (3, 3), padding='same')(conc_3)
-conv_up_3_1 = Activation('relu')(conv_up_3_1)
-conv_up_3_2 = Conv2D(64, (3, 3), padding='same')(conv_up_3_1)
-conv_up_3_2 = Activation('relu')(conv_up_3_2)
+## Обучение модели
 
+На данном этапе создается модель функцией Model.
 
-up_4 = UpSampling2D(2, interpolation='bilinear')(conv_up_3_2) # последний апсемплинг
-conc_4 = Concatenate()([conv_1_2, up_4])
-conv_up_4_1 = Conv2D(32, (3, 3), padding='same')(conc_4)
-conv_up_4_1 = Activation('relu')(conv_up_4_1)
-conv_up_4_2 = Conv2D(1, (3, 3), padding='same')(conv_up_4_1) # свертка с 1м каналом, для вывода маски изображения
-result = Activation('sigmoid')(conv_up_4_2)
+    model = Model(inputs=inp, outputs=result)
+    
+Командой keras.callbacks.ModelCheckpoint создается 2 списка (list) для хранения весов модели. Один лист предназначен для хранения лучших весов модели (best_w) и один лист для хранения последних весов модели (last_w).
 
-# Запуск модели
-model = Model(inputs=inp, outputs=result)
-
-# Создание списков весов моделей 
-best_w = keras.callbacks.ModelCheckpoint('unet_best.h5', # сохранение лучших весов модели
+    best_w = keras.callbacks.ModelCheckpoint('unet_best.h5', # сохранение лучших весов модели
                                 monitor='val_loss',
                                 verbose=0,
                                 save_best_only=True,
@@ -150,24 +95,19 @@ best_w = keras.callbacks.ModelCheckpoint('unet_best.h5', # сохранение 
                                 mode='auto',
                                 period=1)
 
-last_w = keras.callbacks.ModelCheckpoint('unet_last.h5', # сохранение последних весов модели
+    last_w = keras.callbacks.ModelCheckpoint('unet_last.h5', # сохранение последних весов модели
                                 monitor='val_loss',
                                 verbose=0,
                                 save_best_only=False,
                                 save_weights_only=True,
                                 mode='auto',
                                 period=1)
+    callbacks = [best_w, last_w]
 
-callbacks = [best_w, last_w]
-
-adam = keras.optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0) # оптимизация
-
-# Компиляция модели, в качестве функции ошибки берем кросс-энтропию
-model.compile(adam, 'binary_crossentropy')
-
-# Собственно, запуск обучения модели
-batch_size = 16
-model.fit_generator(keras_generator(train_df, batch_size),
+Запуск обучения модели
+    
+    batch_size = 16
+    model.fit_generator(keras_generator(train_df, batch_size),
               steps_per_epoch=100, # кол-во батчей
               epochs=100, # кол-во эпох обучения 
               verbose=1, # вывод результата
@@ -180,17 +120,19 @@ model.fit_generator(keras_generator(train_df, batch_size),
               use_multiprocessing=False,
               shuffle=True,
               initial_epoch=0)
+             
+Процесс обучения модели:
 
-pred = model.predict(x)# функция прогнозирования маски
+<img src="https://user-images.githubusercontent.com/34841826/181714876-a0fe6dff-cb42-45f8-bf72-1bf10e00cb7c.png" width="700" height="600">
 
-im_id = 5
-fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(25, 25))
-axes[0].imshow(x[im_id]) # вывод картинки
-axes[1].imshow(pred[im_id, ..., 0] > 0.5) # предсказанной маски для нее
+Более подробно в Application 3.
 
-plt.show()
+## Полученные результаты работы нейронной сети
 
+Вот некоторые из полученных данных сегментации. Нашей задачей было выделить маску машины по изображению (т.е. отделить объект машина от фона). И вот как это реализовала наша нейронная сеть:
 
+<img src="https://user-images.githubusercontent.com/34841826/181715062-3db695d0-7f78-40d7-8a06-b0eedfe2a04d.png" width="700" height="300">
 
+<img src="https://user-images.githubusercontent.com/34841826/181715093-bb05956e-0f48-430e-af69-b1c70f7f4419.png" width="700" height="300">
 
 
