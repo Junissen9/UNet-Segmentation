@@ -123,7 +123,7 @@
              
 Процесс обучения модели:
 
-<img src="https://user-images.githubusercontent.com/34841826/181714876-a0fe6dff-cb42-45f8-bf72-1bf10e00cb7c.png" width="700" height="600">
+<img src="https://user-images.githubusercontent.com/34841826/181714876-a0fe6dff-cb42-45f8-bf72-1bf10e00cb7c.png" width="600" height="400">
 
 Более подробно в Application 3.
 
