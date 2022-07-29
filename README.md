@@ -77,7 +77,7 @@
     conv_up_4_2 = Conv2D(1, (3, 3), padding='same')(conv_up_4_1) # свертка с 1м каналом, для вывода маски изображения
     result = Activation('sigmoid')(conv_up_4_2)
 
-Более подробно в Application 2.
+Более подробно в Application 2 - Library import.
 
 ## Обучение модели
 
@@ -125,7 +125,7 @@
 
 <img src="https://user-images.githubusercontent.com/34841826/181714876-a0fe6dff-cb42-45f8-bf72-1bf10e00cb7c.png" width="600" height="400">
 
-Более подробно в Application 3.
+Более подробно в Application 3 - Running Model Training.
 
 ## Полученные результаты работы нейронной сети
 
